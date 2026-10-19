@@ -1,6 +1,6 @@
 # AgriNuru
 
-AgriNuru is an agricultural production and market decision support project. This initial foundation uses a React and TypeScript frontend with a Django REST API. It introduces the project and provides a health-check endpoint; authentication and agricultural workflows are not implemented yet.
+AgriNuru is an agricultural production and market decision support project built with a React and TypeScript frontend and Django REST API. It currently supports farmer, farm, crop, and crop-linked production records. Authentication, weather integrations, and market-data workflows are not implemented yet.
 
 ## Requirements
 
@@ -58,6 +58,18 @@ Crop names, farms, dates, and cultivated areas are required. Cultivated area mus
 Farms with crop records cannot be deleted. A farm-size update is rejected if it would fall below the total area allocated to its crops; existing crop records are never silently changed or deleted to accommodate a resize.
 
 The Crops navigation page loads real crop and farm records from the API. Register a farm before creating its crop records.
+
+## Production management
+
+Phase 4 adds crop-linked activities, input usage, production expenses, and actual harvest records. CRUD collections are available at `/api/production/activities/`, `/api/production/inputs/`, `/api/production/expenses/`, and `/api/production/harvests/`. Each supports list, create, retrieve, and update. Production records are not hard-deleted: `POST /api/production/<collection>/<id>/void/` requires a reason and retains the record. Lists exclude voided records by default; use `?include_voided=true` to review history. Voided records cannot be edited and are excluded from summaries.
+
+Production records reference existing crops; farm and farmer context is derived through each crop. Filters include `crop`, `farm`, `farmer`, `date_from`, and `date_to`. Activities represent completed work only. Activity, input-usage, and expense dates may precede planting when appropriate; completed records cannot be future-dated. Actual harvest dates cannot precede planting.
+
+Input quantities must be positive and include a unit. Input purchase cost is recorded on the input-use record; production expenses are for other costs to avoid double counting. Costs are non-negative, use an explicit three-letter currency code, and default to KES. Totals are grouped by currency; the application does not convert currencies.
+
+Actual harvest quantities may be zero but not negative, and use kilograms or tonnes. Production summaries normalize compatible harvest quantities to kilograms for expected-versus-actual comparison. A missing expected quantity is not treated as zero. Date-filtered harvest summaries are identified as period-limited and are not presented as full-season comparisons.
+
+The Production page provides activity, input, expense, harvest, and summary sections. Summaries exclude voided records and keep costs grouped by currency.
 
 **Security notice:** These CRUD endpoints are currently unauthenticated and are intended only for local development. Do not expose them publicly or deploy them to a public environment until authentication, authorization, and access controls are implemented.
 

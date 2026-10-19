@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react'
 import { FarmerManagementPage } from './features/farmers/FarmerManagementPage'
 import { FarmManagementPage } from './features/farms/FarmManagementPage'
 import { CropManagementPage } from './features/crops/CropManagementPage'
+import { ProductionManagementPage } from './features/production/ProductionManagementPage'
 import './App.css'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
-type AppPage = 'home' | 'farmers' | 'farms' | 'crops'
+type AppPage = 'home' | 'farmers' | 'farms' | 'crops' | 'production'
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 
@@ -46,6 +47,7 @@ function App() {
           <button type="button" className={page === 'farmers' ? 'nav-active' : ''} aria-current={page === 'farmers' ? 'page' : undefined} onClick={() => setPage('farmers')}>Farmers</button>
           <button type="button" className={page === 'farms' ? 'nav-active' : ''} aria-current={page === 'farms' ? 'page' : undefined} onClick={() => setPage('farms')}>Farms</button>
           <button type="button" className={page === 'crops' ? 'nav-active' : ''} aria-current={page === 'crops' ? 'page' : undefined} onClick={() => setPage('crops')}>Crops</button>
+          <button type="button" className={page === 'production' ? 'nav-active' : ''} aria-current={page === 'production' ? 'page' : undefined} onClick={() => setPage('production')}>Production</button>
           {page === 'home' ? (
             <a className="header-cta" href="#foundation">Platform overview <span aria-hidden="true">↗</span></a>
           ) : (
@@ -58,6 +60,7 @@ function App() {
         {page === 'farmers' && <FarmerManagementPage />}
         {page === 'farms' && <FarmManagementPage />}
         {page === 'crops' && <CropManagementPage />}
+        {page === 'production' && <ProductionManagementPage />}
         {page === 'home' && <>
         <section className="hero" aria-labelledby="hero-title">
           <div className="hero-copy">

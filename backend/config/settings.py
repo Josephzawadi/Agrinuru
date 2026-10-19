@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     "apps.accounts.apps.AccountsConfig",
     "apps.farms.apps.FarmsConfig",
     "apps.crops.apps.CropsConfig",
+    "apps.production.apps.ProductionConfig",
 ]
 
 MIDDLEWARE = [

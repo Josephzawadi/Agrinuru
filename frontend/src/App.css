@@ -93,8 +93,8 @@ a { color: inherit; }
 }
 
 @media (max-width: 700px) {
-  .site-header { min-height: 72px; }
-  .header-nav { gap: 10px; }
+  .site-header { min-height: 72px; height: auto; flex-wrap: wrap; gap: 8px; padding: 14px 4%; }
+  .header-nav { flex: 1 1 180px; flex-wrap: wrap; justify-content: flex-end; gap: 6px 10px; }
   .header-nav > a:first-child { display: none; }
   .header-nav .header-cta { padding: 9px 10px; font-size: 11px; }
   .header-nav button { font-size: 11px; }

@@ -259,3 +259,103 @@
 }
 
 .crop-record .record-main p { max-width: 380px; }
+
+.production-tabs {
+  display: flex;
+  gap: 5px;
+  margin: 0 0 17px;
+  padding-bottom: 1px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+}
+
+.production-tab {
+  flex: 0 0 auto;
+  padding: 11px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.production-tab:hover,
+.production-tab.active { color: var(--green); }
+.production-tab.active { border-bottom-color: var(--coral); }
+
+.production-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: #fbfcf8;
+}
+
+.production-filters .form-field { min-width: 0; }
+.production-filters .form-field input,
+.production-filters .form-field select { min-height: 38px; padding: 7px 9px; font-size: 12px; }
+
+.voided-filter {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #46534b;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.voided-filter input { width: 15px; height: 15px; accent-color: var(--green); }
+
+.production-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.22fr);
+  align-items: start;
+  gap: 18px;
+}
+
+.production-layout .management-form,
+.production-layout .records-panel { padding: 21px; }
+.production-record .record-main { flex: 1; }
+.production-record .record-main p { max-width: 420px; }
+.production-record.is-voided { background: #f2f3ef; }
+.voided-badge { margin-left: 8px; padding: 3px 6px; background: #e8e4dc; color: #706859; font-family: 'DM Sans', sans-serif; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+
+.summary-scope { margin: 0 0 18px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.summary-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 20px; }
+.summary-count { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid var(--line); background: #fbfcf8; }
+.summary-count strong { color: var(--green); font-family: 'Manrope', sans-serif; font-size: 20px; }
+.summary-count span { color: var(--muted); font-size: 10px; text-transform: capitalize; }
+.summary-crop { padding: 18px 0; border-top: 1px solid var(--line); }
+.summary-crop .records-heading { margin-bottom: 12px; }
+.summary-crop h3 { margin: 0; color: var(--ink); font-family: 'Manrope', sans-serif; font-size: 15px; }
+.summary-crop .records-heading p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+.comparison-status { padding: 5px 8px; background: #f1eee6; color: #766c55; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.comparison-status.comparable { background: #edf4e8; color: #315b3a; }
+.summary-values { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 9px; }
+.summary-values p { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 10px; background: #f2f5ee; }
+.summary-values span { color: var(--muted); font-size: 10px; }
+.summary-values strong { color: var(--ink); font-size: 12px; overflow-wrap: anywhere; }
+.summary-inputs { margin-top: 12px; color: var(--muted); font-size: 11px; }
+.summary-inputs h4 { margin: 0 0 6px; color: var(--ink); font-size: 11px; }
+.summary-inputs p { margin: 3px 0; }
+.summary-costs { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.summary-costs h3 { margin: 0 0 10px; color: var(--ink); font-family: 'Manrope', sans-serif; font-size: 15px; }
+.summary-costs > p { display: flex; justify-content: space-between; gap: 16px; margin: 0; padding: 10px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.summary-costs strong { color: var(--ink); }
+
+@media (max-width: 760px) {
+  .production-layout { grid-template-columns: 1fr; }
+  .production-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; }
+}
+
+@media (max-width: 460px) {
+  .production-filters { grid-template-columns: 1fr; }
+  .summary-costs > p { flex-direction: column; gap: 4px; }
+  .summary-crop .records-heading { align-items: flex-start; }
+}
