@@ -1,4 +1,4 @@
-import type { ApiFieldErrors, Farm, FarmInput, FarmerInput, FarmerProfile } from '../types/records'
+import type { ApiFieldErrors, Crop, CropInput, Farm, FarmInput, FarmerInput, FarmerProfile } from '../types/records'
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 
@@ -67,4 +67,17 @@ export const farmApi = {
     body: JSON.stringify(data),
   }),
   remove: (id: number) => request<void>(`/api/farms/${id}/`, { method: 'DELETE' }),
+}
+
+export const cropApi = {
+  list: () => request<Crop[]>('/api/crops/'),
+  create: (data: CropInput) => request<Crop>('/api/crops/', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  update: (id: number, data: Partial<CropInput>) => request<Crop>(`/api/crops/${id}/`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  remove: (id: number) => request<void>(`/api/crops/${id}/`, { method: 'DELETE' }),
 }

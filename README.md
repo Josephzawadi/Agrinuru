@@ -49,6 +49,16 @@ The Phase 2 API exposes `GET`, `POST`, `GET /<id>/`, `PATCH /<id>/`, and `DELETE
 
 The Farmer and Farms navigation pages use these API endpoints directly. Farmer details include name, phone number, email, county, sub-county, and preferred language; farm details include farmer, name, location, and approximate size in acres.
 
+## Crop management
+
+The Phase 3 API provides `GET`, `POST`, `GET /<id>/`, `PATCH /<id>/`, and `DELETE /<id>/` operations at `/api/crops/`. Every crop belongs to an existing farm. Crop records include a name, optional variety, farm, planting and expected harvest dates, cultivated area in acres, growth stage, optional expected harvest quantity and its unit, and creation/update timestamps.
+
+Crop names, farms, dates, and cultivated areas are required. Cultivated area must be positive, fit within the farm's remaining registered area, and combined crop allocations cannot exceed the farm size. Expected harvest cannot precede planting. Expected harvest quantity may be omitted; when supplied it must be non-negative and paired with an explicit unit (kilograms or tonnes). Growth stage uses defined choices and is farmer-recorded information, not automatically verified.
+
+Farms with crop records cannot be deleted. A farm-size update is rejected if it would fall below the total area allocated to its crops; existing crop records are never silently changed or deleted to accommodate a resize.
+
+The Crops navigation page loads real crop and farm records from the API. Register a farm before creating its crop records.
+
 **Security notice:** These CRUD endpoints are currently unauthenticated and are intended only for local development. Do not expose them publicly or deploy them to a public environment until authentication, authorization, and access controls are implemented.
 
 ## Test the setup

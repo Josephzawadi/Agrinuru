@@ -154,6 +154,9 @@
 
 .error-alert { border-color: #bd5941; background: #fdf1ed; color: #853d2c; }
 .success-alert { border-color: #4d875c; background: #eef6ed; color: #315b3a; }
+.info-alert { border-color: #6b8e78; background: #eef3ed; color: #465d4c; }
+.form-field i { color: #758078; font-size: 10px; font-style: normal; font-weight: 400; }
+.crop-capacity { margin: -6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 
 .records-heading {
   justify-content: space-between;
@@ -254,3 +257,5 @@
   .record-row { flex-direction: column; }
   .record-meta { width: 100%; align-items: flex-start; padding-left: 46px; text-align: left; }
 }
+
+.crop-record .record-main p { max-width: 380px; }

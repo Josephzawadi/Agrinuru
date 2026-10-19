@@ -1,3 +1,6 @@
+from decimal import Decimal
+
+from django.db.models import Sum
 from rest_framework import serializers
 
 from .models import Farm
@@ -15,3 +18,22 @@ class FarmSerializer(serializers.ModelSerializer):
             "date_created",
         ]
         read_only_fields = ["id", "date_created"]
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if self.instance is not None:
+            new_size = attrs.get(
+                "approximate_size_acres",
+                self.instance.approximate_size_acres,
+            )
+            allocated_size = self.instance.crops.aggregate(
+                total=Sum("cultivated_area_acres")
+            )["total"] or Decimal("0")
+            if new_size < allocated_size:
+                raise serializers.ValidationError({
+                    "approximate_size_acres": (
+                        f"This farm already has {allocated_size} acres allocated to crops. "
+                        "Increase the farm size or reduce crop allocations before saving."
+                    )
+                })
+        return attrs
