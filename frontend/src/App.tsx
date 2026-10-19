@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
+import { FarmerManagementPage } from './features/farmers/FarmerManagementPage'
+import { FarmManagementPage } from './features/farms/FarmManagementPage'
 import './App.css'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
+type AppPage = 'home' | 'farmers' | 'farms'
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 
 function App() {
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking')
+  const [page, setPage] = useState<AppPage>('home')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -32,17 +36,26 @@ function App() {
   return (
     <div className="site-shell" id="top">
       <header className="site-header">
-        <a className="brand" href="#top" aria-label="AgriNuru home">
+        <a className="brand" href="#top" aria-label="AgriNuru home" onClick={() => setPage('home')}>
           <span className="brand-mark" aria-hidden="true">A</span>
           <span>AgriNuru</span>
         </a>
         <nav className="header-nav" aria-label="Main navigation">
-          <a href="#approach">Our approach</a>
-          <a className="header-cta" href="#foundation">Platform overview <span aria-hidden="true">↗</span></a>
+          {page === 'home' && <a href="#approach">Our approach</a>}
+          <button type="button" className={page === 'farmers' ? 'nav-active' : ''} aria-current={page === 'farmers' ? 'page' : undefined} onClick={() => setPage('farmers')}>Farmers</button>
+          <button type="button" className={page === 'farms' ? 'nav-active' : ''} aria-current={page === 'farms' ? 'page' : undefined} onClick={() => setPage('farms')}>Farms</button>
+          {page === 'home' ? (
+            <a className="header-cta" href="#foundation">Platform overview <span aria-hidden="true">↗</span></a>
+          ) : (
+            <button type="button" className="header-cta" onClick={() => setPage('home')}>Home <span aria-hidden="true">↗</span></button>
+          )}
         </nav>
       </header>
 
       <main>
+        {page === 'farmers' && <FarmerManagementPage />}
+        {page === 'farms' && <FarmManagementPage />}
+        {page === 'home' && <>
         <section className="hero" aria-labelledby="hero-title">
           <div className="hero-copy">
             <p className="eyebrow"><span /> Decisions for every season</p>
@@ -110,10 +123,11 @@ function App() {
             </article>
           </div>
         </section>
+        </>}
       </main>
 
       <footer className="site-footer">
-        <a className="brand footer-brand" href="#top"><span className="brand-mark" aria-hidden="true">A</span><span>AgriNuru</span></a>
+        <a className="brand footer-brand" href="#top" onClick={() => setPage('home')}><span className="brand-mark" aria-hidden="true">A</span><span>AgriNuru</span></a>
         <p>A production and market decision support project.</p>
         <span>Built for better-informed growing.</span>
       </footer>

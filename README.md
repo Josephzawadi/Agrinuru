@@ -36,12 +36,20 @@ In a second PowerShell terminal from the repository root:
 
 ```powershell
 Set-Location frontend
- npm install
+npm install
 Copy-Item .env.example .env
 npm run dev
 ```
 
 Open the Vite URL shown in the terminal, normally `http://localhost:5173/`. The landing page checks the backend health endpoint and displays whether the API is reachable. Its hero photograph and typefaces load from external sources and require an internet connection.
+
+## Farmer and farm management
+
+The Phase 2 API exposes `GET`, `POST`, `GET /<id>/`, `PATCH /<id>/`, and `DELETE /<id>/` operations at `/api/farmers/` and `/api/farms/`. Farm records reference an existing farmer. A farmer with registered farms cannot be deleted; the API returns HTTP 409 until those farms are removed or reassigned.
+
+The Farmer and Farms navigation pages use these API endpoints directly. Farmer details include name, phone number, email, county, sub-county, and preferred language; farm details include farmer, name, location, and approximate size in acres.
+
+**Security notice:** These CRUD endpoints are currently unauthenticated and are intended only for local development. Do not expose them publicly or deploy them to a public environment until authentication, authorization, and access controls are implemented.
 
 ## Test the setup
 

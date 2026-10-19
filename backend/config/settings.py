@@ -20,6 +20,8 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework",
     "apps.core",
+    "apps.accounts.apps.AccountsConfig",
+    "apps.farms.apps.FarmsConfig",
 ]
 
 MIDDLEWARE = [
