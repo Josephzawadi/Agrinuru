@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError
+from django.contrib.auth import get_user_model
 from django.db.models.deletion import ProtectedError
 from django.test import TestCase
 from django.urls import reverse
@@ -63,6 +64,14 @@ class FarmModelTests(TestCase):
 class FarmApiTests(APITestCase):
     def setUp(self):
         self.farmer = create_farmer()
+        user = get_user_model().objects.create_user(
+            username="farm-api-user",
+            email="farm-api-user@example.com",
+            password="SecurePassword!98",
+        )
+        self.farmer.user = user
+        self.farmer.save(update_fields=["user"])
+        self.client.force_authenticate(user=user)
 
     def test_farm_crud_endpoints(self):
         create_response = self.client.post(

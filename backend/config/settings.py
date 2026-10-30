@@ -87,3 +87,18 @@ CORS_ALLOWED_ORIGINS = env.list(
     "CORS_ALLOWED_ORIGINS",
     default=["http://localhost:5173", "http://127.0.0.1:5173"],
 )
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = env.list(
+    "CSRF_TRUSTED_ORIGINS",
+    default=CORS_ALLOWED_ORIGINS,
+)
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+        "apps.accounts.permissions.HasFarmerDataAccess",
+    ],
+}

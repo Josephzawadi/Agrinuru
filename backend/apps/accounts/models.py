@@ -2,6 +2,7 @@ import re
 
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -23,6 +24,13 @@ def validate_phone_number(value):
 
 
 class FarmerProfile(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="farmer_profile",
+        null=True,
+        blank=True,
+    )
     full_name = models.CharField(max_length=150, validators=[RegexValidator(r".*\S.*")])
     phone_number = models.CharField(max_length=30, validators=[validate_phone_number])
     email = models.EmailField(max_length=254)

@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
@@ -122,6 +123,14 @@ class CropModelTests(TestCase):
 class CropApiTests(APITestCase):
     def setUp(self):
         self.farm = create_farm()
+        user = get_user_model().objects.create_user(
+            username="crop-api-user",
+            email="crop-api-user@example.com",
+            password="SecurePassword!98",
+        )
+        self.farm.farmer.user = user
+        self.farm.farmer.save(update_fields=["user"])
+        self.client.force_authenticate(user=user)
 
     def test_crop_crud_endpoints(self):
         create_response = self.client.post(

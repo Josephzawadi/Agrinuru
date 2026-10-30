@@ -71,7 +71,13 @@ Actual harvest quantities may be zero but not negative, and use kilograms or ton
 
 The Production page provides activity, input, expense, harvest, and summary sections. Summaries exclude voided records and keep costs grouped by currency.
 
-**Security notice:** These CRUD endpoints are currently unauthenticated and are intended only for local development. Do not expose them publicly or deploy them to a public environment until authentication, authorization, and access controls are implemented.
+## Authentication foundation
+
+The API uses Django session authentication. Register with a username, email address, and password at `POST /api/auth/register/`, then sign in at `POST /api/auth/login/`. The registration endpoint creates a Django account only; it does not create or claim a farmer profile. `GET /api/auth/me/` returns the signed-in account, and `POST /api/auth/logout/` ends its session. Obtain a CSRF cookie/token from `GET /api/auth/csrf/` before unsafe requests. The React API client sends session cookies and CSRF headers; do not store passwords or session identifiers in browser storage.
+
+The frontend and backend should use the same local hostname so browser session cookies remain same-site. The default frontend API URL is `http://localhost:8000`; open Vite at `http://localhost:5173/`. For a different deployment origin, configure `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS` with the exact trusted origins and use HTTPS in production.
+
+Authenticated access is required for farmer, farm, crop, and production APIs. **Record ownership enforcement is not part of this stage:** until Stage 2, any authenticated account can access the existing shared records. Do not expose the application publicly until ownership scoping, staff access rules, and production deployment security have been completed.
 
 ## Test the setup
 

@@ -1,11 +1,17 @@
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 
 from apps.accounts.models import FarmerProfile, validate_phone_number
+from apps.accounts.roles import AGRINURU_STAFF_GROUP, set_agrinuru_staff
+from apps.accounts.admin import AdministratorOnlyGroupAdmin, AdministratorOnlyUserAdmin
 from apps.farms.models import Farm
+
+User = get_user_model()
 
 
 def farmer_data(**overrides):
@@ -42,6 +48,15 @@ class FarmerProfileModelTests(TestCase):
 
 
 class FarmerApiTests(APITestCase):
+    def setUp(self):
+        user = User.objects.create_user(
+            username="existing-farmer-api",
+            email="existing-farmer-api@example.com",
+            password="SecurePassword!98",
+        )
+        set_agrinuru_staff(user, True)
+        self.client.force_authenticate(user=user)
+
     def test_farmer_crud_endpoints(self):
         create_response = self.client.post(
             reverse("farmer-list"), farmer_data(), format="json"
@@ -111,3 +126,383 @@ class FarmerApiTests(APITestCase):
             "Remove or reassign the farms first.",
         )
         self.assertTrue(FarmerProfile.objects.filter(pk=farmer.pk).exists())
+
+
+class AuthenticationApiTests(APITestCase):
+    def setUp(self):
+        self.registration_data = {
+            "username": "amina_farmer",
+            "email": "amina@example.com",
+            "password": "SecurePassword!98",
+        }
+
+    def test_registration_hashes_password_and_does_not_create_farmer_profile(self):
+        existing_profile = FarmerProfile.objects.create(**farmer_data())
+        response = self.client.post(
+            reverse("auth-register"),
+            self.registration_data,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(username="amina_farmer")
+        self.assertTrue(user.check_password(self.registration_data["password"]))
+        self.assertNotEqual(user.password, self.registration_data["password"])
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertTrue(user.is_active)
+        self.assertEqual(user.groups.count(), 0)
+        self.assertEqual(response.data["role"], "unlinked")
+        self.assertFalse(response.data["has_farmer_profile"])
+        self.assertEqual(FarmerProfile.objects.count(), 1)
+        existing_profile.refresh_from_db()
+        self.assertEqual(existing_profile.email, self.registration_data["email"])
+        self.assertEqual(
+            set(response.data),
+            {"id", "username", "email", "role", "has_farmer_profile"},
+        )
+        self.assertNotIn("password", response.data)
+        self.assertEqual(
+            self.client.get(reverse("auth-current-user")).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_registration_rejects_duplicate_username_and_email(self):
+        self.client.post(
+            reverse("auth-register"),
+            self.registration_data,
+            format="json",
+        )
+
+        duplicate_username = self.client.post(
+            reverse("auth-register"),
+            {
+                **self.registration_data,
+                "username": "AMINA_FARMER",
+                "email": "another@example.com",
+            },
+            format="json",
+        )
+        duplicate_email = self.client.post(
+            reverse("auth-register"),
+            {
+                **self.registration_data,
+                "username": "another_farmer",
+                "email": "AMINA@example.com",
+            },
+            format="json",
+        )
+
+        self.assertEqual(duplicate_username.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("username", duplicate_username.data)
+        self.assertEqual(duplicate_email.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", duplicate_email.data)
+
+    def test_registration_cannot_assign_privileged_flags(self):
+        response = self.client.post(
+            reverse("auth-register"),
+            {
+                **self.registration_data,
+                "is_staff": True,
+                "is_superuser": True,
+                "is_active": False,
+                "role": "administrator",
+                "groups": [AGRINURU_STAFF_GROUP],
+                "permissions": ["auth.change_user"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(username="amina_farmer")
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertTrue(user.is_active)
+        self.assertFalse(user.groups.exists())
+
+    def test_login_establishes_session_and_invalid_credentials_are_generic(self):
+        user = User.objects.create_user(
+            username="amina_farmer",
+            email="amina@example.com",
+            password=self.registration_data["password"],
+        )
+        login_response = self.client.post(
+            reverse("auth-login"),
+            {
+                "username": user.username,
+                "password": self.registration_data["password"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(reverse("auth-current-user")).status_code, status.HTTP_200_OK)
+
+        wrong_password = self.client.post(
+            reverse("auth-login"),
+            {"username": user.username, "password": "WrongPassword!98"},
+            format="json",
+        )
+        unknown_user = self.client.post(
+            reverse("auth-login"),
+            {"username": "unknown", "password": "WrongPassword!98"},
+            format="json",
+        )
+        self.assertEqual(wrong_password.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(unknown_user.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(wrong_password.data, unknown_user.data)
+
+    def test_logout_ends_the_authenticated_session(self):
+        User.objects.create_user(
+            username="amina_farmer",
+            email="amina@example.com",
+            password=self.registration_data["password"],
+        )
+        login_response = self.client.post(
+            reverse("auth-login"),
+            {
+                "username": "amina_farmer",
+                "password": self.registration_data["password"],
+            },
+            format="json",
+        )
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+
+        logout_response = self.client.post(reverse("auth-logout"), format="json")
+
+        self.assertEqual(logout_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            self.client.get(reverse("auth-current-user")).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_current_user_is_safe_and_requires_authentication(self):
+        anonymous_response = self.client.get(reverse("auth-current-user"))
+        self.assertEqual(anonymous_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        user = User.objects.create_user(
+            username="amina_farmer",
+            email="amina@example.com",
+            password=self.registration_data["password"],
+        )
+        self.client.force_authenticate(user=user)
+        authenticated_response = self.client.get(reverse("auth-current-user"))
+
+        self.assertEqual(authenticated_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            set(authenticated_response.data),
+            {"id", "username", "email", "role", "has_farmer_profile"},
+        )
+        self.assertEqual(authenticated_response.data["role"], "unlinked")
+        self.assertFalse(authenticated_response.data["has_farmer_profile"])
+        self.assertNotIn("password", authenticated_response.data)
+
+    def test_unlinked_account_can_view_account_but_not_farmer_data(self):
+        user = User.objects.create_user(
+            username="unlinked-farmer",
+            email="unlinked@example.com",
+            password=self.registration_data["password"],
+        )
+        self.client.force_authenticate(user=user)
+
+        account_response = self.client.get(reverse("auth-current-user"))
+        self.assertEqual(account_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(account_response.data["role"], "unlinked")
+
+        for route_name in (
+            "farmer-list",
+            "farm-list",
+            "crop-list",
+            "production-activity-list",
+            "input-usage-list",
+            "production-expense-list",
+            "harvest-record-list",
+            "production-summary",
+        ):
+            with self.subTest(route_name=route_name):
+                response = self.client.get(reverse(route_name))
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_is_staff_without_agrinuru_group_does_not_grant_data_access(self):
+        user = User.objects.create_user(
+            username="django-staff-only",
+            email="django-staff@example.com",
+            password=self.registration_data["password"],
+            is_staff=True,
+        )
+        self.client.force_authenticate(user=user)
+
+        response = self.client.get(reverse("farmer-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_only_administrator_can_assign_or_remove_staff_role(self):
+        target = User.objects.create_user(
+            username="staff-target",
+            email="staff-target@example.com",
+            password=self.registration_data["password"],
+        )
+        ordinary_user = User.objects.create_user(
+            username="ordinary-user",
+            email="ordinary@example.com",
+            password=self.registration_data["password"],
+        )
+        self.client.force_authenticate(user=ordinary_user)
+
+        denied = self.client.post(
+            reverse("auth-staff-assignment", args=[ordinary_user.pk]),
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(denied.status_code, status.HTTP_403_FORBIDDEN)
+        ordinary_user.refresh_from_db()
+        self.assertFalse(ordinary_user.is_staff)
+        self.assertFalse(ordinary_user.groups.exists())
+        self.assertEqual(
+            self.client.patch(
+                reverse("auth-current-user"),
+                {"role": "administrator"},
+                format="json",
+            ).status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+        administrator = User.objects.create_superuser(
+            username="administrator",
+            email="administrator@example.com",
+            password=self.registration_data["password"],
+        )
+        admin_client = APIClient()
+        admin_client.force_authenticate(user=administrator)
+
+        granted = admin_client.post(
+            reverse("auth-staff-assignment", args=[target.pk]),
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(granted.status_code, status.HTTP_200_OK)
+        self.assertEqual(granted.data["role"], "staff")
+        target.refresh_from_db()
+        self.assertTrue(target.is_staff)
+        self.assertTrue(target.groups.filter(name=AGRINURU_STAFF_GROUP).exists())
+
+        revoked = admin_client.post(
+            reverse("auth-staff-assignment", args=[target.pk]),
+            {"enabled": False},
+            format="json",
+        )
+        self.assertEqual(revoked.status_code, status.HTTP_200_OK)
+        self.assertEqual(revoked.data["role"], "unlinked")
+        target.refresh_from_db()
+        self.assertFalse(target.is_staff)
+        self.assertFalse(target.groups.filter(name=AGRINURU_STAFF_GROUP).exists())
+
+    def test_administrator_retains_full_farmer_data_access(self):
+        administrator = User.objects.create_superuser(
+            username="full-administrator",
+            email="full-admin@example.com",
+            password=self.registration_data["password"],
+        )
+        self.client.force_authenticate(user=administrator)
+
+        account_response = self.client.get(reverse("auth-current-user"))
+        self.assertEqual(account_response.data["role"], "administrator")
+        for route_name in (
+            "farmer-list",
+            "farm-list",
+            "crop-list",
+            "production-activity-list",
+            "input-usage-list",
+            "production-expense-list",
+            "harvest-record-list",
+            "production-summary",
+        ):
+            with self.subTest(route_name=route_name):
+                self.assertEqual(
+                    self.client.get(reverse(route_name)).status_code,
+                    status.HTTP_200_OK,
+                )
+
+    def test_only_superusers_can_manage_users_and_groups_in_django_admin(self):
+        staff_user = User.objects.create_user(
+            username="staff-admin-surface",
+            email="staff-admin@example.com",
+            password=self.registration_data["password"],
+            is_staff=True,
+        )
+        request = RequestFactory().get("/admin/")
+        request.user = staff_user
+        user_admin = AdministratorOnlyUserAdmin(User, admin.site)
+        group_admin = AdministratorOnlyGroupAdmin(Group, admin.site)
+
+        self.assertFalse(user_admin.has_module_permission(request))
+        self.assertFalse(user_admin.has_change_permission(request))
+        self.assertFalse(group_admin.has_module_permission(request))
+        self.assertFalse(group_admin.has_change_permission(request))
+
+        administrator = User.objects.create_superuser(
+            username="django-admin-surface",
+            email="django-admin-surface@example.com",
+            password=self.registration_data["password"],
+        )
+        request.user = administrator
+        self.assertTrue(user_admin.has_module_permission(request))
+        self.assertTrue(user_admin.has_change_permission(request))
+        self.assertTrue(group_admin.has_module_permission(request))
+        self.assertTrue(group_admin.has_change_permission(request))
+
+    def test_data_apis_require_authentication(self):
+        for route_name in (
+            "farmer-list",
+            "farm-list",
+            "crop-list",
+            "production-activity-list",
+            "input-usage-list",
+            "production-expense-list",
+            "harvest-record-list",
+            "production-summary",
+        ):
+            with self.subTest(route_name=route_name):
+                response = self.client.get(reverse(route_name))
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_csrf_is_required_for_login_and_session_authenticated_writes(self):
+        user = User.objects.create_user(
+            username="amina_farmer",
+            email="amina@example.com",
+            password=self.registration_data["password"],
+        )
+        client = APIClient(enforce_csrf_checks=True)
+        csrf_response = client.get(reverse("auth-csrf"))
+        csrf_token = csrf_response.data["csrfToken"]
+
+        login_payload = {
+            "username": user.username,
+            "password": self.registration_data["password"],
+        }
+        rejected_login = client.post(
+            reverse("auth-login"),
+            login_payload,
+            format="json",
+        )
+        self.assertEqual(rejected_login.status_code, status.HTTP_403_FORBIDDEN)
+
+        accepted_login = client.post(
+            reverse("auth-login"),
+            login_payload,
+            format="json",
+            HTTP_X_CSRFTOKEN=csrf_token,
+        )
+        self.assertEqual(accepted_login.status_code, status.HTTP_200_OK)
+
+        rejected_write = client.post(
+            reverse("farmer-list"),
+            farmer_data(),
+            format="json",
+        )
+        self.assertEqual(rejected_write.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_logout_requires_authentication(self):
+        response = self.client.post(reverse("auth-logout"), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

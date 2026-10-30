@@ -18,19 +18,43 @@ import type {
   ProductionSummary,
 } from '../types/records'
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+
+export interface AuthUser {
+  id: number
+  username: string
+  email: string
+  role: 'administrator' | 'staff' | 'farmer' | 'unlinked'
+  has_farmer_profile: boolean
+}
 
 export class ApiRequestError extends Error {
   readonly fieldErrors: ApiFieldErrors
+  readonly statusCode: number
 
   constructor(
     message: string,
     fieldErrors: ApiFieldErrors = {},
+    statusCode = 0,
   ) {
     super(message)
     this.name = 'ApiRequestError'
     this.fieldErrors = fieldErrors
+    this.statusCode = statusCode
   }
+}
+
+async function csrfToken(): Promise<string> {
+  const response = await fetch(`${apiBaseUrl}/api/auth/csrf/`, {
+    credentials: 'include',
+  })
+  const payload: unknown = await response.json().catch(() => null)
+
+  if (!response.ok || !payload || typeof payload !== 'object' || !('csrfToken' in payload) || typeof payload.csrfToken !== 'string') {
+    throw new ApiRequestError(`Could not prepare a secure request (${response.status}).`, {}, response.status)
+  }
+
+  return payload.csrfToken
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -39,7 +63,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers.set('Content-Type', 'application/json')
   }
 
-  const response = await fetch(`${apiBaseUrl}${path}`, { ...options, headers })
+  const method = (options.method ?? 'GET').toUpperCase()
+  if (!['GET', 'HEAD', 'OPTIONS', 'TRACE'].includes(method)) {
+    headers.set('X-CSRFToken', await csrfToken())
+  }
+
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    ...options,
+    credentials: 'include',
+    headers,
+  })
   const payload: unknown = await response.json().catch(() => null)
 
   if (!response.ok) {
@@ -55,10 +88,25 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
     const detail = typeof data.detail === 'string' ? data.detail : undefined
     const summary = detail ?? Object.values(fieldErrors)[0] ?? `Request failed (${response.status}).`
-    throw new ApiRequestError(summary, fieldErrors)
+    throw new ApiRequestError(summary, fieldErrors, response.status)
   }
 
   return payload as T
+}
+
+export const authApi = {
+  register: (data: { username: string; email: string; password: string }) =>
+    request<AuthUser>('/api/auth/register/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  login: (data: { username: string; password: string }) =>
+    request<AuthUser>('/api/auth/login/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  logout: () => request<{ detail: string }>('/api/auth/logout/', { method: 'POST' }),
+  currentUser: () => request<AuthUser>('/api/auth/me/'),
 }
 
 export const farmerApi = {

@@ -1,6 +1,7 @@
 from decimal import Decimal
 from datetime import date
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
@@ -187,6 +188,14 @@ class ProductionModelTests(TestCase):
 class ProductionApiTests(APITestCase):
     def setUp(self):
         self.farmer, self.farm, self.crop = create_farm_and_crop()
+        user = get_user_model().objects.create_user(
+            username="production-api-user",
+            email="production-api-user@example.com",
+            password="SecurePassword!98",
+        )
+        self.farmer.user = user
+        self.farmer.save(update_fields=["user"])
+        self.client.force_authenticate(user=user)
 
     def test_create_activity_and_filter_by_crop_farm_farmer_and_date(self):
         response = self.client.post(

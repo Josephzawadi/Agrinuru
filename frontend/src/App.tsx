@@ -1,17 +1,23 @@
 import { useEffect, useState } from 'react'
+import { ApiRequestError, authApi, type AuthUser } from './api/client'
 import { FarmerManagementPage } from './features/farmers/FarmerManagementPage'
 import { FarmManagementPage } from './features/farms/FarmManagementPage'
 import { CropManagementPage } from './features/crops/CropManagementPage'
 import { ProductionManagementPage } from './features/production/ProductionManagementPage'
+import { AuthPage } from './features/auth/AuthPage'
 import './App.css'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 type AppPage = 'home' | 'farmers' | 'farms' | 'crops' | 'production'
+type AuthStatus = 'checking' | 'authenticated' | 'anonymous' | 'error'
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
 function App() {
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking')
+  const [authStatus, setAuthStatus] = useState<AuthStatus>('checking')
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null)
+  const [authError, setAuthError] = useState('')
   const [page, setPage] = useState<AppPage>('home')
 
   useEffect(() => {
@@ -28,6 +34,67 @@ function App() {
 
     return () => controller.abort()
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    authApi.currentUser()
+      .then((user) => {
+        if (!cancelled) {
+          setAuthUser(user)
+          setAuthStatus('authenticated')
+        }
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        if (error instanceof ApiRequestError && [401, 403].includes(error.statusCode)) {
+          setAuthStatus('anonymous')
+          return
+        }
+        setAuthError('Could not verify your session. Check the API connection and retry.')
+        setAuthStatus('error')
+      })
+
+    return () => { cancelled = true }
+  }, [])
+
+  async function signOut() {
+    setAuthError('')
+    try {
+      await authApi.logout()
+      setAuthUser(null)
+      setAuthStatus('anonymous')
+      setPage('home')
+    } catch (error) {
+      if (error instanceof ApiRequestError && [401, 403].includes(error.statusCode)) {
+        setAuthUser(null)
+        setAuthStatus('anonymous')
+        return
+      }
+      setAuthError('Could not sign out. Please try again.')
+    }
+  }
+
+  if (authStatus === 'checking') {
+    return <main className="auth-page"><p role="status">Checking your session…</p></main>
+  }
+
+  if (authStatus === 'error') {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <p className="auth-error" role="alert">{authError}</p>
+          <button className="button-primary" onClick={() => window.location.reload()} type="button">Retry</button>
+        </section>
+      </main>
+    )
+  }
+
+  if (authStatus === 'anonymous') {
+    return <AuthPage onAuthenticated={(user) => {
+      setAuthUser(user)
+      setAuthStatus('authenticated')
+    }} />
+  }
 
   const apiStatusLabel = {
     checking: 'Connecting to the platform',
@@ -53,10 +120,13 @@ function App() {
           ) : (
             <button type="button" className="header-cta" onClick={() => setPage('home')}>Home <span aria-hidden="true">↗</span></button>
           )}
+          {authUser && <span className="signed-in-user">{authUser.username}</span>}
+          <button type="button" className="sign-out-button" onClick={signOut}>Sign out</button>
         </nav>
       </header>
 
       <main>
+        {authError && <p className="auth-error app-auth-error" role="alert">{authError}</p>}
         {page === 'farmers' && <FarmerManagementPage />}
         {page === 'farms' && <FarmManagementPage />}
         {page === 'crops' && <CropManagementPage />}
