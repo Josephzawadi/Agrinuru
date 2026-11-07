@@ -77,7 +77,7 @@ The API uses Django session authentication. Register with a username, email addr
 
 The frontend and backend should use the same local hostname so browser session cookies remain same-site. The default frontend API URL is `http://localhost:8000`; open Vite at `http://localhost:5173/`. For a different deployment origin, configure `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS` with the exact trusted origins and use HTTPS in production.
 
-Authenticated access is required for farmer, farm, crop, and production APIs. **Record ownership enforcement is not part of this stage:** until Stage 2, any authenticated account can access the existing shared records. Do not expose the application publicly until ownership scoping, staff access rules, and production deployment security have been completed.
+Authenticated, linked farmer accounts can access only their own farmer profile, farms, crops, and crop-linked production records and summaries. Production record crop references are restricted to the farmer's own crops. Unlinked accounts are denied access to farmer data. AgriNuru staff (members of the AgriNuru Staff group) and administrators (Django superusers) can access records across farmers. Only administrators can assign or remove the AgriNuru Staff role. Registration creates an account but does not link it to a farmer profile; a staff member must link the account before the farmer can access farmer data.
 
 ## Test the setup
 

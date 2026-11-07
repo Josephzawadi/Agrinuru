@@ -6,15 +6,17 @@ from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import FarmerProfile
-from .permissions import IsAdministrator
-from .roles import set_agrinuru_staff
+from .permissions import IsAdministrator, IsStaffOrAdministrator
+from .roles import is_agrinuru_staff, set_agrinuru_staff
 from .serializers import (
     AccountSerializer,
+    FarmerProfileAccountLinkSerializer,
     FarmerProfileSerializer,
     RegistrationSerializer,
     StaffAssignmentSerializer,
@@ -26,6 +28,18 @@ User = get_user_model()
 class FarmerProfileViewSet(viewsets.ModelViewSet):
     queryset = FarmerProfile.objects.all()
     serializer_class = FarmerProfileSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        if user.is_superuser or is_agrinuru_staff(user):
+            return queryset
+        return queryset.filter(user=user)
+
+    def get_permissions(self):
+        if self.action in {"create", "destroy", "link_account"}:
+            return [IsAuthenticated(), IsStaffOrAdministrator()]
+        return super().get_permissions()
 
     def destroy(self, request, *args, **kwargs):
         farmer = self.get_object()
@@ -40,6 +54,17 @@ class FarmerProfileViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"], url_path="link-account")
+    def link_account(self, request, *args, **kwargs):
+        farmer = self.get_object()
+        serializer = FarmerProfileAccountLinkSerializer(
+            farmer,
+            data=request.data,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(FarmerProfileSerializer(farmer).data, status=status.HTTP_200_OK)
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")

@@ -3,10 +3,25 @@ from decimal import Decimal
 from django.db.models import Sum
 from rest_framework import serializers
 
+from apps.accounts.models import FarmerProfile
+from apps.accounts.roles import is_agrinuru_staff
+
 from .models import Farm
 
 
 class FarmSerializer(serializers.ModelSerializer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if (
+            request
+            and request.user.is_authenticated
+            and not request.user.is_superuser
+            and not is_agrinuru_staff(request.user)
+        ):
+            self.fields["farmer"].queryset = FarmerProfile.objects.filter(user=request.user)
+            self.fields["farmer"].required = False
+
     class Meta:
         model = Farm
         fields = [

@@ -5,12 +5,15 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, Sum
 from django.utils.dateparse import parse_date
 from rest_framework import status, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.decorators import action
 
 from apps.crops.models import Crop
+from apps.accounts.permissions import HasFarmerDataAccess
+from apps.accounts.roles import UserRole, get_user_role
 from .models import HarvestRecord, InputUsage, ProductionActivity, ProductionExpense
 from .serializers import (
     HarvestRecordSerializer,
@@ -68,10 +71,17 @@ def _include_voided(query_params):
 
 
 class ProductionRecordViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, HasFarmerDataAccess]
     date_field = None
 
     def get_queryset(self):
         queryset = self.queryset.select_related("crop", "crop__farm", "crop__farm__farmer")
+        if get_user_role(self.request.user) not in {
+            UserRole.STAFF,
+            UserRole.ADMINISTRATOR,
+        }:
+            queryset = queryset.filter(crop__farm__farmer__user=self.request.user)
+
         filters, date_from, date_to = _common_filters(self.request.query_params)
         queryset = queryset.filter(**filters)
         if date_from:
@@ -80,14 +90,12 @@ class ProductionRecordViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(**{f"{self.date_field}__lte": date_to})
 
         include_voided = _include_voided(self.request.query_params)
-        if not include_voided and self.action not in {"retrieve", "void"}:
+        if not include_voided and self.action not in {"retrieve", "void", "destroy"}:
             queryset = queryset.filter(voided_at__isnull=True)
         return queryset
 
     def destroy(self, request, *args, **kwargs):
-        record = self.queryset.filter(pk=kwargs.get(self.lookup_field, None)).first()
-        if record is None:
-            raise NotFound()
+        record = self.get_object()
         return Response(
             {"detail": "Production history cannot be deleted. Void the record with a reason instead."},
             status=status.HTTP_409_CONFLICT,
@@ -139,6 +147,8 @@ def _quantity_in_kg(quantity, unit):
 
 
 class ProductionSummaryView(APIView):
+    permission_classes = [IsAuthenticated, HasFarmerDataAccess]
+
     def get(self, request):
         crop_filters, date_from, date_to = _common_filters(request.query_params)
         crop_filter_fields = {
@@ -149,6 +159,11 @@ class ProductionSummaryView(APIView):
         crops = Crop.objects.select_related("farm", "farm__farmer").filter(
             **{crop_filter_fields[key]: value for key, value in crop_filters.items()}
         )
+        if get_user_role(request.user) not in {
+            UserRole.STAFF,
+            UserRole.ADMINISTRATOR,
+        }:
+            crops = crops.filter(farm__farmer__user=request.user)
 
         crop_summaries = []
         cost_totals = defaultdict(lambda: {"input_purchases": Decimal("0"), "other_expenses": Decimal("0")})

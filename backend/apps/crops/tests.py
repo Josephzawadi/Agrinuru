@@ -8,6 +8,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import FarmerProfile
+from apps.accounts.roles import set_agrinuru_staff
 from apps.crops.models import Crop
 from apps.farms.models import Farm
 
@@ -272,3 +273,102 @@ class CropApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["status"], "ok")
+
+    def test_farmer_can_only_list_retrieve_update_and_delete_own_crops(self):
+        own_crop_response = self.client.post(
+            reverse("crop-list"), crop_data(self.farm), format="json"
+        )
+        self.assertEqual(own_crop_response.status_code, status.HTTP_201_CREATED)
+        other_farm = create_farm()
+        other_crop = Crop.objects.create(
+            farm=other_farm,
+            crop_name="Other Maize",
+            planting_date="2026-03-01",
+            expected_harvest_date="2026-08-01",
+            cultivated_area_acres=Decimal("1.00"),
+        )
+
+        listing = self.client.get(reverse("crop-list"))
+        self.assertEqual([row["id"] for row in listing.data], [own_crop_response.data["id"]])
+        self.assertEqual(
+            self.client.get(reverse("crop-detail", args=[other_crop.pk])).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            self.client.patch(
+                reverse("crop-detail", args=[other_crop.pk]),
+                {"growth_stage": Crop.GrowthStage.FLOWERING},
+                format="json",
+            ).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            self.client.delete(reverse("crop-detail", args=[other_crop.pk])).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_farmer_cannot_create_or_move_crop_to_another_farm(self):
+        other_farm = create_farm()
+        create_foreign = self.client.post(
+            reverse("crop-list"), crop_data(self.farm, farm=other_farm.pk), format="json"
+        )
+        self.assertEqual(create_foreign.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("farm", create_foreign.data)
+
+        own_crop = Crop.objects.create(
+            farm=self.farm,
+            crop_name="My Maize",
+            planting_date="2026-03-01",
+            expected_harvest_date="2026-08-01",
+            cultivated_area_acres=Decimal("1.00"),
+        )
+        move_foreign = self.client.patch(
+            reverse("crop-detail", args=[own_crop.pk]),
+            {"farm": other_farm.pk},
+            format="json",
+        )
+        self.assertEqual(move_foreign.status_code, status.HTTP_400_BAD_REQUEST)
+        own_crop.refresh_from_db()
+        self.assertEqual(own_crop.farm, self.farm)
+
+    def test_staff_and_administrator_can_manage_crops_across_farmers(self):
+        own_crop = Crop.objects.create(
+            farm=self.farm,
+            crop_name="First Farmer Maize",
+            planting_date="2026-03-01",
+            expected_harvest_date="2026-08-01",
+            cultivated_area_acres=Decimal("1.00"),
+        )
+        other_farm = create_farm()
+        other_crop = Crop.objects.create(
+            farm=other_farm,
+            crop_name="Staff Managed Maize",
+            planting_date="2026-03-01",
+            expected_harvest_date="2026-08-01",
+            cultivated_area_acres=Decimal("1.00"),
+        )
+        staff_user = get_user_model().objects.create_user(
+            username="crop-manager",
+            email="crop-manager@example.com",
+            password="SecurePassword!98",
+        )
+        set_agrinuru_staff(staff_user, True)
+        self.client.force_authenticate(user=staff_user)
+
+        staff_list = self.client.get(reverse("crop-list"))
+        self.assertEqual({row["id"] for row in staff_list.data}, {own_crop.pk, other_crop.pk})
+        staff_update = self.client.patch(
+            reverse("crop-detail", args=[other_crop.pk]),
+            {"growth_stage": Crop.GrowthStage.FLOWERING},
+            format="json",
+        )
+        self.assertEqual(staff_update.status_code, status.HTTP_200_OK)
+
+        administrator = get_user_model().objects.create_superuser(
+            username="crop-administrator",
+            email="crop-administrator@example.com",
+            password="SecurePassword!98",
+        )
+        self.client.force_authenticate(user=administrator)
+        admin_list = self.client.get(reverse("crop-list"))
+        self.assertEqual({row["id"] for row in admin_list.data}, {own_crop.pk, other_crop.pk})

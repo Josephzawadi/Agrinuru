@@ -32,6 +32,25 @@ class FarmerProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "date_registered"]
 
 
+class FarmerProfileAccountLinkSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        allow_null=True,
+        required=True,
+    )
+
+    class Meta:
+        model = FarmerProfile
+        fields = ["user"]
+
+    def validate_user(self, user):
+        if user is not None and FarmerProfile.objects.filter(user=user).exclude(
+            pk=self.instance.pk
+        ).exists():
+            raise serializers.ValidationError("This account is already linked to a farmer profile.")
+        return user
+
+
 class AccountSerializer(serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
     has_farmer_profile = serializers.SerializerMethodField()

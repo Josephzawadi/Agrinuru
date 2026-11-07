@@ -9,6 +9,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import FarmerProfile
+from apps.accounts.roles import set_agrinuru_staff
 from apps.crops.models import Crop
 from apps.farms.models import Farm
 from apps.production.models import (
@@ -52,6 +53,18 @@ def create_farm_and_crop(
     )
     crop.refresh_from_db()
     return farmer, farm, crop
+
+
+def create_farmer_account(email, username):
+    farmer, farm, crop = create_farm_and_crop(email=email)
+    user = get_user_model().objects.create_user(
+        username=username,
+        email=email,
+        password="a-strong-test-password",
+    )
+    farmer.user = user
+    farmer.save(update_fields=["user"])
+    return farmer, farm, crop, user
 
 
 def activity_data(crop, **overrides):
@@ -195,7 +208,185 @@ class ProductionApiTests(APITestCase):
         )
         self.farmer.user = user
         self.farmer.save(update_fields=["user"])
+        set_agrinuru_staff(user, True)
         self.client.force_authenticate(user=user)
+
+    def create_production_records(self, crop):
+        return {
+            "activity": ProductionActivity.objects.create(
+                **model_data(activity_data(crop), crop)
+            ),
+            "input": InputUsage.objects.create(**model_data(input_data(crop), crop)),
+            "expense": ProductionExpense.objects.create(
+                **model_data(expense_data(crop), crop)
+            ),
+            "harvest": HarvestRecord.objects.create(
+                **model_data(harvest_data(crop), crop)
+            ),
+        }
+
+    def test_farmer_record_access_is_limited_to_owned_crops(self):
+        own_farmer, _, own_crop, own_user = create_farmer_account(
+            "own-production@example.com", "own-production"
+        )
+        other_farmer, _, other_crop, _ = create_farmer_account(
+            "other-production@example.com", "other-production"
+        )
+        own_records = self.create_production_records(own_crop)
+        other_records = self.create_production_records(other_crop)
+        self.client.force_authenticate(user=own_user)
+
+        routes = (
+            ("production-activity-list", "production-activity-detail", "production-activity-void", "activity"),
+            ("input-usage-list", "input-usage-detail", "input-usage-void", "input"),
+            ("production-expense-list", "production-expense-detail", "production-expense-void", "expense"),
+            ("harvest-record-list", "harvest-record-detail", "harvest-record-void", "harvest"),
+        )
+        for list_route, detail_route, void_route, record_type in routes:
+            own_record = own_records[record_type]
+            other_record = other_records[record_type]
+            with self.subTest(record_type=record_type):
+                listing = self.client.get(reverse(list_route))
+                self.assertEqual(listing.status_code, status.HTTP_200_OK)
+                self.assertEqual([row["id"] for row in listing.data], [own_record.pk])
+                self.assertEqual(
+                    self.client.get(reverse(detail_route, args=[other_record.pk])).status_code,
+                    status.HTTP_404_NOT_FOUND,
+                )
+                self.assertEqual(
+                    self.client.patch(
+                        reverse(detail_route, args=[other_record.pk]),
+                        {"notes": "Unauthorized change"},
+                        format="json",
+                    ).status_code,
+                    status.HTTP_404_NOT_FOUND,
+                )
+                self.assertEqual(
+                    self.client.delete(reverse(detail_route, args=[other_record.pk])).status_code,
+                    status.HTTP_404_NOT_FOUND,
+                )
+                self.assertEqual(
+                    self.client.post(
+                        reverse(void_route, args=[other_record.pk]),
+                        {"reason": "Unauthorized void"},
+                        format="json",
+                    ).status_code,
+                    status.HTTP_404_NOT_FOUND,
+                )
+                self.assertEqual(
+                    self.client.delete(reverse(detail_route, args=[own_record.pk])).status_code,
+                    status.HTTP_409_CONFLICT,
+                )
+
+        self.assertNotEqual(own_farmer.pk, other_farmer.pk)
+
+    def test_farmer_cannot_create_or_reassign_records_to_foreign_crop(self):
+        _, _, own_crop, own_user = create_farmer_account(
+            "crop-owner@example.com", "crop-owner"
+        )
+        _, _, other_crop, _ = create_farmer_account(
+            "foreign-crop-owner@example.com", "foreign-crop-owner"
+        )
+        self.client.force_authenticate(user=own_user)
+
+        cases = (
+            ("production-activity-list", "production-activity-detail", "activity", activity_data),
+            ("input-usage-list", "input-usage-detail", "input", input_data),
+            ("production-expense-list", "production-expense-detail", "expense", expense_data),
+            ("harvest-record-list", "harvest-record-detail", "harvest", harvest_data),
+        )
+        own_records = self.create_production_records(own_crop)
+        for list_route, detail_route, record_type, data_factory in cases:
+            with self.subTest(record_type=record_type):
+                foreign_crop_data = data_factory(own_crop)
+                foreign_crop_data["crop"] = other_crop.pk
+                rejected_create = self.client.post(
+                    reverse(list_route),
+                    foreign_crop_data,
+                    format="json",
+                )
+                self.assertEqual(rejected_create.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn("crop", rejected_create.data)
+
+                rejected_reassignment = self.client.patch(
+                    reverse(detail_route, args=[own_records[record_type].pk]),
+                    {"crop": other_crop.pk},
+                    format="json",
+                )
+                self.assertEqual(
+                    rejected_reassignment.status_code,
+                    status.HTTP_400_BAD_REQUEST,
+                )
+                self.assertIn("crop", rejected_reassignment.data)
+
+    def test_farmer_summary_contains_only_owned_production_data(self):
+        _, _, own_crop, own_user = create_farmer_account(
+            "summary-owner@example.com", "summary-owner"
+        )
+        _, _, other_crop, _ = create_farmer_account(
+            "summary-other@example.com", "summary-other"
+        )
+        own_records = self.create_production_records(own_crop)
+        other_records = self.create_production_records(other_crop)
+        self.client.force_authenticate(user=own_user)
+
+        summary = self.client.get(reverse("production-summary"))
+
+        self.assertEqual(summary.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["crop_id"] for row in summary.data["crops"]], [own_crop.pk])
+        self.assertEqual(summary.data["active_record_counts"], {
+            "activities": 1,
+            "input_usages": 1,
+            "expenses": 1,
+            "harvests": 1,
+        })
+        self.assertEqual(
+            summary.data["crops"][0]["actual_harvest"]["normalized_kg"],
+            str(own_records["harvest"].quantity),
+        )
+        self.assertNotEqual(own_records["expense"].pk, other_records["expense"].pk)
+        self.assertEqual(
+            len(self.client.get(
+                reverse("production-summary") + f"?farmer={other_crop.farm.farmer_id}"
+            ).data["crops"]),
+            0,
+        )
+
+    def test_staff_and_administrator_retain_cross_farmer_production_access(self):
+        _, _, other_crop, _ = create_farmer_account(
+            "cross-farmer@example.com", "cross-farmer"
+        )
+        own_records = self.create_production_records(self.crop)
+        other_records = self.create_production_records(other_crop)
+        activity_ids = {own_records["activity"].pk, other_records["activity"].pk}
+
+        for user in (
+            self.farmer.user,
+            get_user_model().objects.create_superuser(
+                username="production-administrator",
+                email="production-administrator@example.com",
+                password="a-strong-test-password",
+            ),
+        ):
+            with self.subTest(user=user.username):
+                self.client.force_authenticate(user=user)
+                foreign_crop_activity = self.client.post(
+                    reverse("production-activity-list"),
+                    activity_data(other_crop, description=f"Created by {user.username}"),
+                    format="json",
+                )
+                self.assertEqual(
+                    foreign_crop_activity.status_code,
+                    status.HTTP_201_CREATED,
+                )
+                activity_ids.add(foreign_crop_activity.data["id"])
+                listing = self.client.get(reverse("production-activity-list"))
+                self.assertEqual({row["id"] for row in listing.data}, activity_ids)
+                summary = self.client.get(reverse("production-summary"))
+                self.assertEqual(
+                    {row["crop_id"] for row in summary.data["crops"]},
+                    {self.crop.pk, other_crop.pk},
+                )
 
     def test_create_activity_and_filter_by_crop_farm_farmer_and_date(self):
         response = self.client.post(

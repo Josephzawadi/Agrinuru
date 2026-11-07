@@ -45,12 +45,6 @@ def set_agrinuru_staff(user, enabled):
     group, _ = Group.objects.get_or_create(name=AGRINURU_STAFF_GROUP)
     if enabled:
         user.groups.add(group)
-        if not user.is_staff:
-            user.is_staff = True
-            user.save(update_fields=["is_staff"])
         return
 
     user.groups.remove(group)
-    if user.is_staff:
-        user.is_staff = False
-        user.save(update_fields=["is_staff"])

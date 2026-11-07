@@ -15,3 +15,10 @@ class IsAdministrator(BasePermission):
 
     def has_permission(self, request, view):
         return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
+
+
+class IsStaffOrAdministrator(BasePermission):
+    message = "Only AgriNuru staff or administrators can perform this action."
+
+    def has_permission(self, request, view):
+        return get_user_role(request.user) in {UserRole.STAFF, UserRole.ADMINISTRATOR}

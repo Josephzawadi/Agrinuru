@@ -1,6 +1,9 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from apps.accounts.roles import UserRole, get_user_role
+from apps.crops.models import Crop
+
 from .models import HarvestRecord, InputUsage, ProductionActivity, ProductionExpense
 
 
@@ -14,6 +17,17 @@ class HistoricalRecordSerializer(serializers.ModelSerializer):
         read_only=True,
     )
     is_voided = serializers.BooleanField(read_only=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request and get_user_role(request.user) not in {
+            UserRole.STAFF,
+            UserRole.ADMINISTRATOR,
+        }:
+            self.fields["crop"].queryset = Crop.objects.filter(
+                farm__farmer__user=request.user
+            )
 
     def validate(self, attrs):
         attrs = super().validate(attrs)

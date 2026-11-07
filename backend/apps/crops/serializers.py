@@ -1,11 +1,27 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from apps.accounts.roles import is_agrinuru_staff
+from apps.farms.models import Farm
+
 from .models import Crop
 
 
 class CropSerializer(serializers.ModelSerializer):
     farm_name = serializers.CharField(source="farm.farm_name", read_only=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if (
+            request
+            and request.user.is_authenticated
+            and not request.user.is_superuser
+            and not is_agrinuru_staff(request.user)
+        ):
+            self.fields["farm"].queryset = Farm.objects.filter(
+                farmer__user=request.user
+            )
 
     class Meta:
         model = Crop

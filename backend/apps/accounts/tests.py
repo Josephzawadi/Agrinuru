@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import RequestFactory, TestCase
@@ -127,6 +128,33 @@ class FarmerApiTests(APITestCase):
         )
         self.assertTrue(FarmerProfile.objects.filter(pk=farmer.pk).exists())
 
+    def test_staff_can_manage_profiles_for_multiple_farmers(self):
+        first_profile = FarmerProfile.objects.create(**farmer_data())
+        second_profile = FarmerProfile.objects.create(
+            **farmer_data(email="second-farmer@example.com")
+        )
+
+        listing = self.client.get(reverse("farmer-list"))
+        self.assertEqual({row["id"] for row in listing.data}, {first_profile.pk, second_profile.pk})
+        updated = self.client.patch(
+            reverse("farmer-detail", args=[second_profile.pk]),
+            {"county": "Kiambu"},
+            format="json",
+        )
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+
+        administrator = User.objects.create_superuser(
+            username="profile-administrator",
+            email="profile-administrator@example.com",
+            password="SecurePassword!98",
+        )
+        self.client.force_authenticate(user=administrator)
+        admin_listing = self.client.get(reverse("farmer-list"))
+        self.assertEqual(
+            {row["id"] for row in admin_listing.data},
+            {first_profile.pk, second_profile.pk},
+        )
+
 
 class AuthenticationApiTests(APITestCase):
     def setUp(self):
@@ -161,6 +189,8 @@ class AuthenticationApiTests(APITestCase):
             set(response.data),
             {"id", "username", "email", "role", "has_farmer_profile"},
         )
+        self.assertEqual(response.data["role"], "unlinked")
+        self.assertFalse(response.data["has_farmer_profile"])
         self.assertNotIn("password", response.data)
         self.assertEqual(
             self.client.get(reverse("auth-current-user")).status_code,
@@ -297,6 +327,137 @@ class AuthenticationApiTests(APITestCase):
         self.assertFalse(authenticated_response.data["has_farmer_profile"])
         self.assertNotIn("password", authenticated_response.data)
 
+    def test_linked_account_is_reported_as_farmer(self):
+        user = User.objects.create_user(
+            username="linked-farmer",
+            email="linked@example.com",
+            password=self.registration_data["password"],
+        )
+        FarmerProfile.objects.create(**farmer_data(), user=user)
+        self.client.force_authenticate(user=user)
+
+        response = self.client.get(reverse("auth-current-user"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["role"], "farmer")
+        self.assertTrue(response.data["has_farmer_profile"])
+        self.assertEqual(
+            self.client.get(reverse("production-activity-list")).status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            self.client.get(reverse("production-summary")).status_code,
+            status.HTTP_200_OK,
+        )
+
+    def test_farmer_profile_access_is_limited_to_linked_profile(self):
+        farmer_user = User.objects.create_user(
+            username="profile-owner",
+            email="profile-owner@example.com",
+            password=self.registration_data["password"],
+        )
+        other_user = User.objects.create_user(
+            username="other-profile-owner",
+            email="other-profile-owner@example.com",
+            password=self.registration_data["password"],
+        )
+        own_profile = FarmerProfile.objects.create(**farmer_data(), user=farmer_user)
+        other_profile = FarmerProfile.objects.create(
+            **farmer_data(email="other@example.com"),
+            user=other_user,
+        )
+        self.client.force_authenticate(user=farmer_user)
+
+        listed = self.client.get(reverse("farmer-list"))
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["id"] for row in listed.data], [own_profile.pk])
+        self.assertEqual(
+            self.client.get(reverse("farmer-detail", args=[other_profile.pk])).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            self.client.patch(
+                reverse("farmer-detail", args=[other_profile.pk]),
+                {"county": "Kiambu"},
+                format="json",
+            ).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            self.client.delete(reverse("farmer-detail", args=[other_profile.pk])).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.assertEqual(
+            self.client.patch(
+                reverse("farmer-detail", args=[own_profile.pk]),
+                {"user": other_user.pk},
+                format="json",
+            ).status_code,
+            status.HTTP_200_OK,
+        )
+        own_profile.refresh_from_db()
+        self.assertEqual(own_profile.user, farmer_user)
+
+        self.assertEqual(
+            self.client.post(reverse("farmer-list"), farmer_data(), format="json").status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.assertEqual(
+            self.client.post(
+                reverse("farmer-link-account", args=[own_profile.pk]),
+                {"user": None},
+                format="json",
+            ).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.assertEqual(
+            self.client.delete(reverse("farmer-detail", args=[own_profile.pk])).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_staff_can_link_and_unlink_accounts_from_profiles(self):
+        staff_user = User.objects.create_user(
+            username="profile-link-staff",
+            email="profile-link-staff@example.com",
+            password=self.registration_data["password"],
+        )
+        set_agrinuru_staff(staff_user, True)
+        target_user = User.objects.create_user(
+            username="profile-link-target",
+            email="profile-link-target@example.com",
+            password=self.registration_data["password"],
+        )
+        profile = FarmerProfile.objects.create(**farmer_data())
+        self.client.force_authenticate(user=staff_user)
+
+        linked = self.client.post(
+            reverse("farmer-link-account", args=[profile.pk]),
+            {"user": target_user.pk},
+            format="json",
+        )
+        self.assertEqual(linked.status_code, status.HTTP_200_OK)
+        profile.refresh_from_db()
+        self.assertEqual(profile.user, target_user)
+
+        duplicate_profile = FarmerProfile.objects.create(
+            **farmer_data(email="duplicate-profile@example.com")
+        )
+        duplicate_link = self.client.post(
+            reverse("farmer-link-account", args=[duplicate_profile.pk]),
+            {"user": target_user.pk},
+            format="json",
+        )
+        self.assertEqual(duplicate_link.status_code, status.HTTP_400_BAD_REQUEST)
+
+        unlinked = self.client.post(
+            reverse("farmer-link-account", args=[profile.pk]),
+            {"user": None},
+            format="json",
+        )
+        self.assertEqual(unlinked.status_code, status.HTTP_200_OK)
+        profile.refresh_from_db()
+        self.assertIsNone(profile.user)
+
     def test_unlinked_account_can_view_account_but_not_farmer_data(self):
         user = User.objects.create_user(
             username="unlinked-farmer",
@@ -309,7 +470,7 @@ class AuthenticationApiTests(APITestCase):
         self.assertEqual(account_response.status_code, status.HTTP_200_OK)
         self.assertEqual(account_response.data["role"], "unlinked")
 
-        for route_name in (
+        collection_routes = (
             "farmer-list",
             "farm-list",
             "crop-list",
@@ -317,11 +478,50 @@ class AuthenticationApiTests(APITestCase):
             "input-usage-list",
             "production-expense-list",
             "harvest-record-list",
-            "production-summary",
-        ):
+        )
+        for route_name in (*collection_routes, "production-summary"):
             with self.subTest(route_name=route_name):
                 response = self.client.get(reverse(route_name))
                 self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        for route_name in collection_routes:
+            with self.subTest(route_name=route_name, method="POST"):
+                response = self.client.post(reverse(route_name), {}, format="json")
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        detail_routes = (
+            ("farmer-detail", "farmer-list"),
+            ("farm-detail", "farm-list"),
+            ("crop-detail", "crop-list"),
+            ("production-activity-detail", "production-activity-list"),
+            ("input-usage-detail", "input-usage-list"),
+            ("production-expense-detail", "production-expense-list"),
+            ("harvest-record-detail", "harvest-record-list"),
+        )
+        for detail_route, _ in detail_routes:
+            detail_url = reverse(detail_route, args=[1])
+            with self.subTest(route_name=detail_route, method="GET"):
+                self.assertEqual(self.client.get(detail_url).status_code, status.HTTP_403_FORBIDDEN)
+            with self.subTest(route_name=detail_route, method="PATCH"):
+                self.assertEqual(
+                    self.client.patch(detail_url, {}, format="json").status_code,
+                    status.HTTP_403_FORBIDDEN,
+                )
+            with self.subTest(route_name=detail_route, method="DELETE"):
+                self.assertEqual(self.client.delete(detail_url).status_code, status.HTTP_403_FORBIDDEN)
+
+        for void_route in (
+            "production-activity-void",
+            "input-usage-void",
+            "production-expense-void",
+            "harvest-record-void",
+        ):
+            with self.subTest(route_name=void_route, method="POST"):
+                self.assertEqual(
+                    self.client.post(
+                        reverse(void_route, args=[1]), {"reason": "test"}, format="json"
+                    ).status_code,
+                    status.HTTP_403_FORBIDDEN,
+                )
 
     def test_is_staff_without_agrinuru_group_does_not_grant_data_access(self):
         user = User.objects.create_user(
@@ -383,7 +583,7 @@ class AuthenticationApiTests(APITestCase):
         self.assertEqual(granted.status_code, status.HTTP_200_OK)
         self.assertEqual(granted.data["role"], "staff")
         target.refresh_from_db()
-        self.assertTrue(target.is_staff)
+        self.assertFalse(target.is_staff)
         self.assertTrue(target.groups.filter(name=AGRINURU_STAFF_GROUP).exists())
 
         revoked = admin_client.post(
@@ -436,9 +636,13 @@ class AuthenticationApiTests(APITestCase):
         group_admin = AdministratorOnlyGroupAdmin(Group, admin.site)
 
         self.assertFalse(user_admin.has_module_permission(request))
+        self.assertFalse(user_admin.has_add_permission(request))
         self.assertFalse(user_admin.has_change_permission(request))
+        self.assertFalse(user_admin.has_delete_permission(request))
         self.assertFalse(group_admin.has_module_permission(request))
+        self.assertFalse(group_admin.has_add_permission(request))
         self.assertFalse(group_admin.has_change_permission(request))
+        self.assertFalse(group_admin.has_delete_permission(request))
 
         administrator = User.objects.create_superuser(
             username="django-admin-surface",
@@ -447,9 +651,13 @@ class AuthenticationApiTests(APITestCase):
         )
         request.user = administrator
         self.assertTrue(user_admin.has_module_permission(request))
+        self.assertTrue(user_admin.has_add_permission(request))
         self.assertTrue(user_admin.has_change_permission(request))
+        self.assertTrue(user_admin.has_delete_permission(request))
         self.assertTrue(group_admin.has_module_permission(request))
+        self.assertTrue(group_admin.has_add_permission(request))
         self.assertTrue(group_admin.has_change_permission(request))
+        self.assertTrue(group_admin.has_delete_permission(request))
 
     def test_data_apis_require_authentication(self):
         for route_name in (
