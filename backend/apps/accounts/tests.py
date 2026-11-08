@@ -161,10 +161,14 @@ class AuthenticationApiTests(APITestCase):
         self.registration_data = {
             "username": "amina_farmer",
             "email": "amina@example.com",
+            "full_name": "Amina Wanjiku",
+            "phone_number": "+254 712 345 678",
+            "county": "Nakuru",
+            "sub_county": "Naivasha",
             "password": "SecurePassword!98",
         }
 
-    def test_registration_hashes_password_and_does_not_create_farmer_profile(self):
+    def test_registration_creates_a_new_linked_profile_without_claiming_existing_profile(self):
         existing_profile = FarmerProfile.objects.create(**farmer_data())
         response = self.client.post(
             reverse("auth-register"),
@@ -180,22 +184,43 @@ class AuthenticationApiTests(APITestCase):
         self.assertFalse(user.is_superuser)
         self.assertTrue(user.is_active)
         self.assertEqual(user.groups.count(), 0)
-        self.assertEqual(response.data["role"], "unlinked")
-        self.assertFalse(response.data["has_farmer_profile"])
-        self.assertEqual(FarmerProfile.objects.count(), 1)
+        self.assertEqual(response.data["role"], "farmer")
+        self.assertTrue(response.data["has_farmer_profile"])
+        self.assertEqual(FarmerProfile.objects.count(), 2)
         existing_profile.refresh_from_db()
         self.assertEqual(existing_profile.email, self.registration_data["email"])
+        self.assertIsNone(existing_profile.user)
+        registered_profile = FarmerProfile.objects.get(user=user)
+        self.assertEqual(registered_profile.full_name, self.registration_data["full_name"])
+        self.assertEqual(registered_profile.phone_number, self.registration_data["phone_number"])
+        self.assertEqual(registered_profile.email, user.email)
+        self.assertEqual(registered_profile.county, self.registration_data["county"])
+        self.assertEqual(registered_profile.sub_county, self.registration_data["sub_county"])
+        self.assertEqual(registered_profile.preferred_language, "English")
         self.assertEqual(
             set(response.data),
             {"id", "username", "email", "role", "has_farmer_profile"},
         )
-        self.assertEqual(response.data["role"], "unlinked")
-        self.assertFalse(response.data["has_farmer_profile"])
         self.assertNotIn("password", response.data)
+        self.client.force_authenticate(user=user)
         self.assertEqual(
             self.client.get(reverse("auth-current-user")).status_code,
-            status.HTTP_403_FORBIDDEN,
+            status.HTTP_200_OK,
         )
+        farmer_listing = self.client.get(reverse("farmer-list"))
+        self.assertEqual([row["id"] for row in farmer_listing.data], [registered_profile.pk])
+
+    def test_registration_rejects_invalid_farmer_details_without_creating_account(self):
+        response = self.client.post(
+            reverse("auth-register"),
+            {**self.registration_data, "phone_number": "not-a-phone"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("phone_number", response.data)
+        self.assertFalse(User.objects.filter(username=self.registration_data["username"]).exists())
+        self.assertFalse(FarmerProfile.objects.exists())
 
     def test_registration_rejects_duplicate_username_and_email(self):
         self.client.post(

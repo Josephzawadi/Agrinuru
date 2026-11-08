@@ -1,5 +1,5 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
-import { ApiRequestError, farmApi, farmerApi } from '../../api/client'
+import { ApiRequestError, apiErrorMessage, farmApi, farmerApi } from '../../api/client'
 import type { ApiFieldErrors, Farm, FarmInput, FarmerProfile } from '../../types/records'
 import '../management.css'
 
@@ -36,8 +36,8 @@ export function FarmManagementPage() {
       ])
       setFarmers(farmerRecords)
       setFarms(farmRecords)
-    } catch {
-      setError('Could not load farms and farmer choices. Check that the API is running and try again.')
+    } catch (requestError) {
+      setError(apiErrorMessage(requestError, 'Could not load farms and farmer choices.'))
     } finally {
       setLoading(false)
     }
@@ -52,8 +52,8 @@ export function FarmManagementPage() {
           setFarms(farmRecords)
         }
       })
-      .catch(() => {
-        if (!cancelled) setError('Could not load farms and farmer choices. Check that the API is running and try again.')
+      .catch((requestError: unknown) => {
+        if (!cancelled) setError(apiErrorMessage(requestError, 'Could not load farms and farmer choices.'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -132,7 +132,7 @@ export function FarmManagementPage() {
         setError(requestError.message)
         setFieldErrors(requestError.fieldErrors)
       } else {
-        setError('Could not save the farm record. Check your connection and try again.')
+        setError(apiErrorMessage(requestError, 'Could not save the farm record.'))
       }
     } finally {
       setSaving(false)
@@ -150,9 +150,7 @@ export function FarmManagementPage() {
       setNotice('Farm record deleted.')
       if (editingId === farm.id) resetForm()
     } catch (requestError) {
-      setError(requestError instanceof ApiRequestError
-        ? requestError.message
-        : 'Could not delete the farm record. Try again.')
+      setError(apiErrorMessage(requestError, 'Could not delete the farm record.'))
     } finally {
       setDeletingId(null)
     }

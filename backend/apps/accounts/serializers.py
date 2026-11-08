@@ -1,9 +1,10 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from rest_framework import serializers
 
-from .models import FarmerProfile
+from .models import FarmerProfile, validate_phone_number
 from .roles import get_user_role, has_farmer_profile
 
 User = get_user_model()
@@ -70,6 +71,14 @@ class AccountSerializer(serializers.ModelSerializer):
 class RegistrationSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150, trim_whitespace=True)
     email = serializers.EmailField(max_length=254, trim_whitespace=True)
+    full_name = serializers.CharField(max_length=150, trim_whitespace=True)
+    phone_number = serializers.CharField(
+        max_length=30,
+        trim_whitespace=True,
+        validators=[validate_phone_number],
+    )
+    county = serializers.CharField(max_length=100, trim_whitespace=True)
+    sub_county = serializers.CharField(max_length=100, trim_whitespace=True)
     password = serializers.CharField(
         write_only=True,
         trim_whitespace=False,
@@ -100,12 +109,22 @@ class RegistrationSerializer(serializers.Serializer):
             raise serializers.ValidationError({"password": error.messages}) from error
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
-        return User.objects.create_user(
+        user = User.objects.create_user(
             username=validated_data["username"],
             email=validated_data["email"],
             password=validated_data["password"],
         )
+        FarmerProfile.objects.create(
+            user=user,
+            full_name=validated_data["full_name"],
+            phone_number=validated_data["phone_number"],
+            email=user.email,
+            county=validated_data["county"],
+            sub_county=validated_data["sub_county"],
+        )
+        return user
 
 
 class StaffAssignmentSerializer(serializers.Serializer):

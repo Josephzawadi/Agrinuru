@@ -1,5 +1,5 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
-import { ApiRequestError, farmerApi } from '../../api/client'
+import { ApiRequestError, apiErrorMessage, farmerApi } from '../../api/client'
 import type { ApiFieldErrors, FarmerInput, FarmerProfile } from '../../types/records'
 import '../management.css'
 
@@ -32,8 +32,8 @@ export function FarmerManagementPage() {
     setError('')
     try {
       setFarmers(await farmerApi.list())
-    } catch {
-      setError('Could not load farmer records. Check that the API is running and try again.')
+    } catch (requestError) {
+      setError(apiErrorMessage(requestError, 'Could not load farmer records.'))
     } finally {
       setLoading(false)
     }
@@ -45,8 +45,8 @@ export function FarmerManagementPage() {
       .then((records) => {
         if (!cancelled) setFarmers(records)
       })
-      .catch(() => {
-        if (!cancelled) setError('Could not load farmer records. Check that the API is running and try again.')
+      .catch((requestError: unknown) => {
+        if (!cancelled) setError(apiErrorMessage(requestError, 'Could not load farmer records.'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -116,7 +116,7 @@ export function FarmerManagementPage() {
         setError(requestError.message)
         setFieldErrors(requestError.fieldErrors)
       } else {
-        setError('Could not save the farmer record. Check your connection and try again.')
+        setError(apiErrorMessage(requestError, 'Could not save the farmer record.'))
       }
     } finally {
       setSaving(false)
@@ -134,9 +134,7 @@ export function FarmerManagementPage() {
       setNotice('Farmer record deleted.')
       if (editingId === farmer.id) resetForm()
     } catch (requestError) {
-      setError(requestError instanceof ApiRequestError
-        ? requestError.message
-        : 'Could not delete the farmer record. Try again.')
+      setError(apiErrorMessage(requestError, 'Could not delete the farmer record.'))
     } finally {
       setDeletingId(null)
     }

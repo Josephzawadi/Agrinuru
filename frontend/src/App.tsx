@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { ApiRequestError, authApi, type AuthUser } from './api/client'
+import {
+  ApiRequestError,
+  apiErrorMessage,
+  authApi,
+  subscribeToSessionExpired,
+  type AuthUser,
+} from './api/client'
 import { FarmerManagementPage } from './features/farmers/FarmerManagementPage'
 import { FarmManagementPage } from './features/farms/FarmManagementPage'
 import { CropManagementPage } from './features/crops/CropManagementPage'
@@ -18,7 +24,15 @@ function App() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>('checking')
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
   const [authError, setAuthError] = useState('')
+  const [sessionExpired, setSessionExpired] = useState(false)
   const [page, setPage] = useState<AppPage>('home')
+
+  useEffect(() => subscribeToSessionExpired(() => {
+    setAuthUser(null)
+    setAuthStatus('anonymous')
+    setSessionExpired(true)
+    setPage('home')
+  }), [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -63,14 +77,15 @@ function App() {
       await authApi.logout()
       setAuthUser(null)
       setAuthStatus('anonymous')
+      setSessionExpired(false)
       setPage('home')
     } catch (error) {
-      if (error instanceof ApiRequestError && [401, 403].includes(error.statusCode)) {
+      if (error instanceof ApiRequestError && error.statusCode === 401) {
         setAuthUser(null)
         setAuthStatus('anonymous')
         return
       }
-      setAuthError('Could not sign out. Please try again.')
+      setAuthError(apiErrorMessage(error, 'Could not sign out. Please try again.'))
     }
   }
 
@@ -90,12 +105,41 @@ function App() {
   }
 
   if (authStatus === 'anonymous') {
-    return <AuthPage onAuthenticated={(user) => {
-      setAuthUser(user)
-      setAuthStatus('authenticated')
-    }} />
+    return (
+      <AuthPage
+        onAuthenticated={(user) => {
+          setAuthUser(user)
+          setAuthStatus('authenticated')
+          setSessionExpired(false)
+          setAuthError('')
+        }}
+        sessionExpired={sessionExpired}
+      />
+    )
   }
 
+  if (
+    authUser
+    && (authUser.role === 'unlinked' || (authUser.role === 'farmer' && !authUser.has_farmer_profile))
+  ) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card" aria-labelledby="account-title">
+          <p className="eyebrow"><span /> AgriNuru account</p>
+          <h1 id="account-title">Profile linking required.</h1>
+          <p className="auth-intro">
+            Your account is not linked to a farmer profile yet, so farmer records are unavailable.
+            Please contact AgriNuru staff to link your account. Existing farmer profiles are not
+            linked automatically.
+          </p>
+          {authError && <p className="auth-error" role="alert">{authError}</p>}
+          <button className="button-primary" onClick={signOut} type="button">Sign out</button>
+        </section>
+      </main>
+    )
+  }
+
+  const canManageFarmers = authUser?.role === 'staff' || authUser?.role === 'administrator'
   const apiStatusLabel = {
     checking: 'Connecting to the platform',
     online: 'Platform services are running',
@@ -111,7 +155,9 @@ function App() {
         </a>
         <nav className="header-nav" aria-label="Main navigation">
           {page === 'home' && <a href="#approach">Our approach</a>}
-          <button type="button" className={page === 'farmers' ? 'nav-active' : ''} aria-current={page === 'farmers' ? 'page' : undefined} onClick={() => setPage('farmers')}>Farmers</button>
+          {canManageFarmers && (
+            <button type="button" className={page === 'farmers' ? 'nav-active' : ''} aria-current={page === 'farmers' ? 'page' : undefined} onClick={() => setPage('farmers')}>Farmers</button>
+          )}
           <button type="button" className={page === 'farms' ? 'nav-active' : ''} aria-current={page === 'farms' ? 'page' : undefined} onClick={() => setPage('farms')}>Farms</button>
           <button type="button" className={page === 'crops' ? 'nav-active' : ''} aria-current={page === 'crops' ? 'page' : undefined} onClick={() => setPage('crops')}>Crops</button>
           <button type="button" className={page === 'production' ? 'nav-active' : ''} aria-current={page === 'production' ? 'page' : undefined} onClick={() => setPage('production')}>Production</button>
@@ -120,14 +166,14 @@ function App() {
           ) : (
             <button type="button" className="header-cta" onClick={() => setPage('home')}>Home <span aria-hidden="true">↗</span></button>
           )}
-          {authUser && <span className="signed-in-user">{authUser.username}</span>}
+          <span className="signed-in-user">{authUser?.username}</span>
           <button type="button" className="sign-out-button" onClick={signOut}>Sign out</button>
         </nav>
       </header>
 
       <main>
         {authError && <p className="auth-error app-auth-error" role="alert">{authError}</p>}
-        {page === 'farmers' && <FarmerManagementPage />}
+        {page === 'farmers' && canManageFarmers && <FarmerManagementPage />}
         {page === 'farms' && <FarmManagementPage />}
         {page === 'crops' && <CropManagementPage />}
         {page === 'production' && <ProductionManagementPage />}

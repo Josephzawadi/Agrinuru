@@ -1,5 +1,5 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
-import { ApiRequestError, cropApi, farmApi } from '../../api/client'
+import { ApiRequestError, apiErrorMessage, cropApi, farmApi } from '../../api/client'
 import type {
   ApiFieldErrors,
   Crop,
@@ -65,8 +65,8 @@ export function CropManagementPage() {
       ])
       setCrops(cropRecords)
       setFarms(farmRecords)
-    } catch {
-      setError('Could not load crops and farm choices. Check that the API is running and try again.')
+    } catch (requestError) {
+      setError(apiErrorMessage(requestError, 'Could not load crops and farm choices.'))
     } finally {
       setLoading(false)
     }
@@ -81,8 +81,8 @@ export function CropManagementPage() {
           setFarms(farmRecords)
         }
       })
-      .catch(() => {
-        if (!cancelled) setError('Could not load crops and farm choices. Check that the API is running and try again.')
+      .catch((requestError: unknown) => {
+        if (!cancelled) setError(apiErrorMessage(requestError, 'Could not load crops and farm choices.'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -203,7 +203,7 @@ export function CropManagementPage() {
         setError(requestError.message)
         setFieldErrors(requestError.fieldErrors)
       } else {
-        setError('Could not save the crop record. Check your connection and try again.')
+        setError(apiErrorMessage(requestError, 'Could not save the crop record.'))
       }
     } finally {
       setSaving(false)
@@ -221,9 +221,7 @@ export function CropManagementPage() {
       setNotice('Crop record deleted.')
       if (editingId === crop.id) resetForm()
     } catch (requestError) {
-      setError(requestError instanceof ApiRequestError
-        ? requestError.message
-        : 'Could not delete the crop record. Try again.')
+      setError(apiErrorMessage(requestError, 'Could not delete the crop record.'))
     } finally {
       setDeletingId(null)
     }

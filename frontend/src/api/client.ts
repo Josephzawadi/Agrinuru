@@ -44,6 +44,81 @@ export class ApiRequestError extends Error {
   }
 }
 
+type SessionExpiredListener = () => void
+
+const sessionExpiredListeners = new Set<SessionExpiredListener>()
+let sessionExpiredNotified = false
+let sessionCheck: Promise<boolean | null> | null = null
+let sessionCheckCache: { checkedAt: number; result: boolean | null } | null = null
+
+export function subscribeToSessionExpired(listener: SessionExpiredListener) {
+  sessionExpiredListeners.add(listener)
+  if (sessionExpiredNotified) listener()
+  return () => {
+    sessionExpiredListeners.delete(listener)
+  }
+}
+
+function resetSessionExpired() {
+  sessionExpiredNotified = false
+  sessionCheckCache = null
+}
+
+function notifySessionExpired() {
+  if (sessionExpiredNotified) return
+  sessionExpiredNotified = true
+  for (const listener of sessionExpiredListeners) listener()
+}
+
+async function verifySession(): Promise<boolean | null> {
+  if (sessionExpiredNotified) return false
+  if (sessionCheckCache && Date.now() - sessionCheckCache.checkedAt < 5000) {
+    return sessionCheckCache.result
+  }
+  if (!sessionCheck) {
+    sessionCheck = fetch(`${apiBaseUrl}/api/auth/me/`, {
+      credentials: 'include',
+    })
+      .then((response) => {
+        if (response.ok) return true
+        if (response.status === 401 || response.status === 403) return false
+        return null
+      })
+      .catch(() => null)
+      .then((result) => {
+        sessionCheckCache = { checkedAt: Date.now(), result }
+        return result
+      })
+      .finally(() => {
+        sessionCheck = null
+      })
+  }
+  return sessionCheck
+}
+
+function isAuthenticationEndpoint(path: string) {
+  return [
+    '/api/auth/csrf/',
+    '/api/auth/register/',
+    '/api/auth/login/',
+    '/api/auth/me/',
+  ].includes(path.split('?')[0])
+}
+
+export function apiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiRequestError) {
+    if (error.statusCode === 401) return 'Your session has expired. Please sign in again.'
+    if (error.statusCode === 403) return 'You do not have permission to perform this action.'
+    if (error.statusCode >= 500) return 'The server encountered an error. Please try again later.'
+    if (error.statusCode === 0) return 'Could not reach the server. Check your network connection and try again.'
+    return error.message
+  }
+  if (error instanceof TypeError) {
+    return 'Could not reach the server. Check your network connection and try again.'
+  }
+  return fallback
+}
+
 async function csrfToken(): Promise<string> {
   const response = await fetch(`${apiBaseUrl}/api/auth/csrf/`, {
     credentials: 'include',
@@ -75,6 +150,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   })
   const payload: unknown = await response.json().catch(() => null)
 
+  let sessionExpired = response.status === 401
+  if (!response.ok && !isAuthenticationEndpoint(path)) {
+    if (sessionExpired) {
+      notifySessionExpired()
+    } else if (response.status === 403 && await verifySession() === false) {
+      sessionExpired = true
+      notifySessionExpired()
+    }
+  }
+
   if (!response.ok) {
     const data = payload && typeof payload === 'object'
       ? payload as Record<string, unknown>
@@ -87,15 +172,26 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     }
 
     const detail = typeof data.detail === 'string' ? data.detail : undefined
-    const summary = detail ?? Object.values(fieldErrors)[0] ?? `Request failed (${response.status}).`
-    throw new ApiRequestError(summary, fieldErrors, response.status)
+    const statusCode = sessionExpired ? 401 : response.status
+    const summary = sessionExpired
+      ? 'Your session has expired. Please sign in again.'
+      : detail ?? Object.values(fieldErrors)[0] ?? `Request failed (${response.status}).`
+    throw new ApiRequestError(summary, fieldErrors, statusCode)
   }
 
   return payload as T
 }
 
 export const authApi = {
-  register: (data: { username: string; email: string; password: string }) =>
+  register: (data: {
+    username: string
+    email: string
+    full_name: string
+    phone_number: string
+    county: string
+    sub_county: string
+    password: string
+  }) =>
     request<AuthUser>('/api/auth/register/', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -104,9 +200,15 @@ export const authApi = {
     request<AuthUser>('/api/auth/login/', {
       method: 'POST',
       body: JSON.stringify(data),
+    }).then((user) => {
+      resetSessionExpired()
+      return user
     }),
   logout: () => request<{ detail: string }>('/api/auth/logout/', { method: 'POST' }),
-  currentUser: () => request<AuthUser>('/api/auth/me/'),
+  currentUser: () => request<AuthUser>('/api/auth/me/').then((user) => {
+    resetSessionExpired()
+    return user
+  }),
 }
 
 export const farmerApi = {

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import {
   ApiRequestError,
+  apiErrorMessage,
   cropApi,
   farmerApi,
   farmApi,
@@ -173,8 +174,8 @@ export function ProductionManagementPage() {
           setFarmers(farmerRecords)
         }
       })
-      .catch(() => {
-        if (!cancelled) setError('Could not load crop and farm records. Check that the API is running and retry.')
+      .catch((requestError: unknown) => {
+        if (!cancelled) setError(apiErrorMessage(requestError, 'Could not load crop and farm records.'))
       })
       .finally(() => {
         if (!cancelled) setLoadingReferences(false)
@@ -222,9 +223,7 @@ export function ProductionManagementPage() {
       })
       .catch((requestError) => {
         if (!cancelled) {
-          setError(requestError instanceof ApiRequestError
-            ? requestError.message
-            : 'Could not load production records. Check your connection and retry.')
+          setError(apiErrorMessage(requestError, 'Could not load production records.'))
         }
       })
       .finally(() => {
@@ -379,7 +378,7 @@ export function ProductionManagementPage() {
         setError(requestError.message)
         setFieldErrors(requestError.fieldErrors)
       } else {
-        setError('Could not save this production record. Check your connection and try again.')
+        setError(apiErrorMessage(requestError, 'Could not save this production record.'))
       }
     } finally {
       setSaving(false)
@@ -405,7 +404,7 @@ export function ProductionManagementPage() {
       setLoadingRecords(true)
       setRefreshToken((current) => current + 1)
     } catch (requestError) {
-      setError(requestError instanceof ApiRequestError ? requestError.message : 'Could not void this record.')
+      setError(apiErrorMessage(requestError, 'Could not void this record.'))
     } finally {
       setSaving(false)
     }
