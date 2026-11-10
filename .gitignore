@@ -6,6 +6,19 @@ backend/.venv/
 backend/.env
 .venv/
 
+# Machine-learning workspace artifacts
+**/.ipynb_checkpoints/
+ml/data/processed/*
+!ml/data/processed/.gitkeep
+ml/models/*.joblib
+ml/models/*.pkl
+ml/models/*.pickle
+ml/models/*.onnx
+ml/models/*.h5
+ml/models/*.pt
+ml/models/*.pth
+ml/reports/*.log
+
 # Node
 frontend/node_modules/
 frontend/dist/

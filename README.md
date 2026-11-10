@@ -84,3 +84,13 @@ Authenticated, linked farmer accounts can access only their own farmer profile, 
 - Backend health check: open `http://127.0.0.1:8000/api/health/`; expect JSON with `"status": "ok"`.
 - Backend test: from `backend/`, run `.\.venv\Scripts\python.exe manage.py test`.
 - Frontend production build: from `frontend/`, run `npm run build`.
+
+## Planned machine learning and data workspace
+
+The `ml/` directory contains the project's organised raw agricultural datasets and a place for future machine-learning work. Planned capabilities are:
+
+- Crop recommendation from soil nutrient and environmental conditions.
+- Crop-yield prediction using historical agricultural and environmental information.
+- Kenyan agricultural commodity market-price forecasting from historical prices.
+
+These are planned development components; AgriNuru does not currently train or serve these models. See [ml/README.md](./ml/README.md) for the workspace layout and [ml/data/README.md](./ml/data/README.md) for dataset sources, schemas, record counts, and known limitations. Original raw files are retained unchanged; processed data and generated model artifacts are not committed by default.
